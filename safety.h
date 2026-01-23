@@ -2,5 +2,7 @@
 #define SAFETY_H
 
 void safety_check(int fault);
+int is_in_safe_mode();
+int get_fault_count();
 
 #endif
