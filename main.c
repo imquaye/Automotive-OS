@@ -33,7 +33,7 @@ void sensor_fusion_task() {
     printf("Sensor Fusion: Distance = %.2fm\n", distance);
 
     if(distance < SAFE_DISTANCE) {
-        printf("Sensor Fusion: Obstacle detected!\n");
+        printf("Sensor Fusion: Obstacle detected! initiating instant brake!\n");
         unsafe_count++;
         if(unsafe_count >= 2) {  // triggers after 2 consecutive unsafe readings
             printf("[SAFETY] Fault detected! Entering SAFE MODE\n");
@@ -49,10 +49,15 @@ void infotainment_task() {
 }
 
 int main() {
-    Task brake = {"Brake Task", 10, 1, brake_task};
-    Task engine = {"Engine Task", 20, 2, engine_task};
-    Task sensor = {"Sensor Fusion Task", 30, 3, sensor_fusion_task};
-    Task infotainment = {"Infotainment Task", 100, 4, infotainment_task};
+    // Task structure: {name, period(ms), priority, deadline(ms), deadline_missed, task_function}
+    Task brake = {"Brake Task", 10, 1, 10, 0, brake_task};              // Critical: 10ms deadline
+    Task engine = {"Engine Task", 20, 2, 20, 0, engine_task};           // High: 20ms deadline
+    Task sensor = {"Sensor Fusion Task", 30, 3, 30, 0, sensor_fusion_task}; // Medium: 30ms deadline
+    Task infotainment = {"Infotainment Task", 100, 4, 100, 0, infotainment_task}; // Low: 100ms deadline
+
+    printf("[System] Automotive OS Starting...\n");
+    printf("[System] Safety monitoring enabled\n");
+    printf("[System] Deadline monitoring enabled\n\n");
 
     add_task(brake);
     add_task(engine);
