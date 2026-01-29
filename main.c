@@ -21,8 +21,8 @@ void brake_task() {
     // Simulate realistic brake pressure (0-150 PSI, with occasional faults)
     int brake_pressure = rand() % 151;  // 0 to 150 PSI
     
-    // 15% chance of simulating a brake fault scenario
-    if (rand() % 100 < 15) {
+    // 8% chance of simulating a brake fault scenario (roughly 1 in 12 times)
+    if (rand() % 100 < 8) {
         brake_pressure = rand() % 20;  // Force low pressure fault (0-19 PSI)
     }
     
@@ -46,7 +46,7 @@ void engine_task() {
     // Simulate realistic engine temperature (50-130 Celsius, with occasional faults)
     int engine_temp = 70 + (rand() % 40);  // Normal range: 70-110 Celsius
     
-    // 12% chance of simulating an engine fault scenario
+    // 8% chance of simulating an engine fault scenario (roughly 1 in 12 times)
     if (rand() % 100 < 12) {
         engine_temp = 110 + (rand() % 25);  // Force overheating (110-134 Celsius)
     }

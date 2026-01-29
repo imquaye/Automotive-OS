@@ -250,9 +250,9 @@ The system now simulates **realistic vehicle fault scenarios** to demonstrate sa
 
 | System | Fault Type | Probability | Trigger Condition |
 |--------|-----------|-------------|-------------------|
-| **Brake** | Low Pressure | 15% | Pressure < 20 PSI |
+| **Brake** | Low Pressure | 8% | Pressure < 20 PSI |
 | **Brake** | High Pressure | Random | Pressure > 120 PSI |
-| **Engine** | Overheating | 12% | Temperature > 105°C |
+| **Engine** | Overheating | 8% | Temperature > 105°C |
 | **Sensor** | Collision Warning | Random | Distance < 1.0m |
 
 **Why Simulate Faults?**
@@ -314,8 +314,8 @@ void brake_task() {
     // Simulate realistic brake pressure (0-150 PSI, with occasional faults)
     int brake_pressure = rand() % 151;  // 0 to 150 PSI
     
-    // 15% chance of simulating a brake fault scenario
-    if (rand() % 100 < 15) {
+    // 8% chance of simulating a brake fault scenario (roughly 1 in 12 times)
+    if (rand() % 100 < 8) {
         brake_pressure = rand() % 20;  // Force low pressure fault (0-19 PSI)
     }
     
@@ -338,7 +338,7 @@ void brake_task() {
 
 **Fault Simulation Logic:**
 - Normal pressure range: 20-120 PSI
-- 15% random chance of forced low-pressure fault
+- 8% random chance of forced low-pressure fault (~1 in 12 cycles)
 - Faults are reported to the safety system for fault counting
 
 **Real-world equivalent:**
@@ -358,8 +358,8 @@ void engine_task() {
     // Simulate realistic engine temperature (50-130 Celsius, with occasional faults)
     int engine_temp = 70 + (rand() % 40);  // Normal range: 70-110 Celsius
     
-    // 12% chance of simulating an engine fault scenario
-    if (rand() % 100 < 12) {
+    // 8% chance of simulating an engine fault scenario (roughly 1 in 12 times)
+    if (rand() % 100 < 8) {
         engine_temp = 110 + (rand() % 25);  // Force overheating (110-134 Celsius)
     }
     
@@ -378,7 +378,7 @@ void engine_task() {
 
 **Fault Simulation Logic:**
 - Normal temperature range: 70-105°C
-- 12% random chance of forced overheating fault
+- 8% random chance of forced overheating fault (~1 in 12 cycles)
 - Overheating triggers safety protocol for driver protection
 
 ---
