@@ -33,6 +33,7 @@ This simulation implements an **Automotive Operating System** that handles:
 | **Safety Monitoring** | Fault detection, counting, and safe mode transitions |
 | **Deadline Monitoring** | Tracks task execution times and detects deadline violations |
 | **Sensor Fusion** | Processes distance sensor data for obstacle detection |
+| **Realistic Fault Simulation** | Random brake pressure and engine temperature faults trigger safety protocols |
 | **Infotainment** | Low-priority entertainment system simulation |
 
 ---
@@ -243,6 +244,42 @@ void safety_check(int fault) {
 - **Safe Mode**: When critically faulted, disable non-essential functions
 - **Recovery**: System can return to normal after sustained fault-free operation
 
+#### Realistic Fault Simulation
+
+The system now simulates **realistic vehicle fault scenarios** to demonstrate safety protocols:
+
+| System | Fault Type | Probability | Trigger Condition |
+|--------|-----------|-------------|-------------------|
+| **Brake** | Low Pressure | 15% | Pressure < 20 PSI |
+| **Brake** | High Pressure | Random | Pressure > 120 PSI |
+| **Engine** | Overheating | 12% | Temperature > 105°C |
+| **Sensor** | Collision Warning | Random | Distance < 1.0m |
+
+**Why Simulate Faults?**
+- Real vehicles don't always operate perfectly
+- Safety systems must be tested under failure conditions
+- Demonstrates fault accumulation and safe mode triggering
+- Shows how multiple subsystem failures cascade into safety actions
+
+**Fault Integration Flow:**
+```
+Brake/Engine Fault Detected
+         │
+         ▼
+    safety_check(1) called
+         │
+         ▼
+    fault_count incremented
+         │
+         ▼
+    fault_count >= 3?
+         │
+    Yes ─┴─ No
+     │      │
+     ▼      ▼
+ SAFE MODE  Continue monitoring
+```
+
 ---
 
 ### 4. Main Application (`main.c`)
@@ -270,11 +307,39 @@ Task infotainment  = {"Infotainment Task",  100,  4, 100, 0, infotainment_task};
 #### Brake Task Implementation
 
 ```c
+#define BRAKE_PRESSURE_MIN 20    // Minimum safe brake pressure (PSI)
+#define BRAKE_PRESSURE_MAX 120   // Maximum safe brake pressure (PSI)
+
 void brake_task() {
-    printf("Brake Control: Checking brake pressure\n");
-    send_can_message("Brake ECU", "Brake OK");
+    // Simulate realistic brake pressure (0-150 PSI, with occasional faults)
+    int brake_pressure = rand() % 151;  // 0 to 150 PSI
+    
+    // 15% chance of simulating a brake fault scenario
+    if (rand() % 100 < 15) {
+        brake_pressure = rand() % 20;  // Force low pressure fault (0-19 PSI)
+    }
+    
+    printf("Brake Control: Checking brake pressure = %d PSI\n", brake_pressure);
+    
+    if (brake_pressure < BRAKE_PRESSURE_MIN) {
+        printf("[BRAKE WARNING] Low brake pressure detected!\n");
+        send_can_message("Brake ECU", "BRAKE FAULT - LOW PRESSURE");
+        safety_check(1);  // Report fault to safety system
+    } else if (brake_pressure > BRAKE_PRESSURE_MAX) {
+        printf("[BRAKE WARNING] High brake pressure detected!\n");
+        send_can_message("Brake ECU", "BRAKE FAULT - HIGH PRESSURE");
+        safety_check(1);  // Report fault to safety system
+    } else {
+        send_can_message("Brake ECU", "Brake OK");
+        safety_check(0);  // System normal
+    }
 }
 ```
+
+**Fault Simulation Logic:**
+- Normal pressure range: 20-120 PSI
+- 15% random chance of forced low-pressure fault
+- Faults are reported to the safety system for fault counting
 
 **Real-world equivalent:**
 1. Read brake pedal position sensor
@@ -283,6 +348,41 @@ void brake_task() {
 4. Send commands to brake actuators via CAN
 5. Report status to main vehicle controller
 
+#### Engine Task Implementation
+
+```c
+#define ENGINE_TEMP_MAX 105      // Maximum safe engine temperature (Celsius)
+#define ENGINE_TEMP_MIN 70       // Minimum operating temperature (Celsius)
+
+void engine_task() {
+    // Simulate realistic engine temperature (50-130 Celsius, with occasional faults)
+    int engine_temp = 70 + (rand() % 40);  // Normal range: 70-110 Celsius
+    
+    // 12% chance of simulating an engine fault scenario
+    if (rand() % 100 < 12) {
+        engine_temp = 110 + (rand() % 25);  // Force overheating (110-134 Celsius)
+    }
+    
+    printf("Engine Control: Monitoring engine temperature = %d°C\n", engine_temp);
+    
+    if (engine_temp > ENGINE_TEMP_MAX) {
+        printf("[ENGINE WARNING] Engine overheating!\n");
+        send_can_message("Engine ECU", "ENGINE FAULT - OVERHEATING");
+        safety_check(1);  // Report fault to safety system
+    } else {
+        send_can_message("Engine ECU", "Engine Normal");
+        safety_check(0);  // System normal
+    }
+}
+```
+
+**Fault Simulation Logic:**
+- Normal temperature range: 70-105°C
+- 12% random chance of forced overheating fault
+- Overheating triggers safety protocol for driver protection
+
+---
+
 #### Sensor Fusion Task - Obstacle Detection
 
 ```c
@@ -290,8 +390,9 @@ void sensor_fusion_task() {
     float distance = ((rand() % 500) / 100.0); // Simulate 0.0m to 5.0m
 
     if (distance < SAFE_DISTANCE) {  // SAFE_DISTANCE = 1.0m
-        printf("Sensor Fusion: Obstacle detected!\n");
+        printf("[COLLISION WARNING] Obstacle detected!\n");
         unsafe_count++;
+        safety_check(1);  // Report fault to safety system
         
         if (unsafe_count >= 2) {  // 2 consecutive unsafe readings
             enter_safe_mode();
@@ -467,24 +568,40 @@ gcc *.c -o automotive_os
 [System] Automotive OS Starting...
 [System] Safety monitoring enabled
 [System] Deadline monitoring enabled
+[System] Fault simulation active - brake/engine faults may occur
 
 [Scheduler] Running tasks (Rate Monotonic Scheduling)
 [Scheduler] Executing Brake Task (deadline: 10ms)
-Brake Control: Checking brake pressure
+Brake Control: Checking brake pressure = 85 PSI
 [CAN BUS] Brake ECU sent: Brake OK
 [Scheduler] Brake Task completed in 0ms (within deadline)
+
 [Scheduler] Executing Engine Task (deadline: 20ms)
-Engine Control: Monitoring engine temperature
+Engine Control: Monitoring engine temperature = 92°C
 [CAN BUS] Engine ECU sent: Engine Normal
 [Scheduler] Engine Task completed in 0ms (within deadline)
-[Scheduler] Executing Sensor Fusion Task (deadline: 30ms)
-Sensor Fusion: Distance = 0.83m
-Sensor Fusion: Obstacle detected! initiating instant brake!
-[Scheduler] Sensor Fusion Task completed in 0ms (within deadline)
-[Scheduler] Executing Infotainment Task (deadline: 100ms)
-Infotainment: Playing music
-[Scheduler] Infotainment Task completed in 0ms (within deadline)
-[SAFETY] System operating normally
+
+--- Later in execution (fault occurs) ---
+
+[Scheduler] Executing Brake Task (deadline: 10ms)
+Brake Control: Checking brake pressure = 12 PSI
+[BRAKE WARNING] Low brake pressure detected! Pressure: 12 PSI
+[CAN BUS] Brake ECU sent: BRAKE FAULT - LOW PRESSURE
+[SAFETY] Fault detected! Fault count: 1
+[Scheduler] Brake Task completed in 0ms (within deadline)
+
+[Scheduler] Executing Engine Task (deadline: 20ms)
+Engine Control: Monitoring engine temperature = 118°C
+[ENGINE WARNING] Engine overheating! Temperature: 118°C
+[CAN BUS] Engine ECU sent: ENGINE FAULT - OVERHEATING
+[SAFETY] Fault detected! Fault count: 2
+[Scheduler] Engine Task completed in 0ms (within deadline)
+
+--- Multiple faults trigger safe mode ---
+
+[SAFETY] CRITICAL: Too many faults! Entering SAFE MODE!
+[SAFETY] Non-critical systems disabled for driver protection
+System is now in SAFE MODE.
 ```
 
 ---
