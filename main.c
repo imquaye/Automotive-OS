@@ -7,13 +7,23 @@
 #include <time.h>
 
 #define SAFE_DISTANCE 1.0
-static int unsafe_count = 0;
+
+// Consecutive failure/success tracking
+static int brake_consecutive_failures = 0;
+static int engine_consecutive_failures = 0;
+static int sensor_consecutive_failures = 0;
+static int consecutive_successes = 0;
 
 // Thresholds for brake and engine systems
 #define BRAKE_PRESSURE_MIN 20    // Minimum safe brake pressure (PSI)
 #define BRAKE_PRESSURE_MAX 120   // Maximum safe brake pressure (PSI)
 #define ENGINE_TEMP_MAX 105      // Maximum safe engine temperature (Celsius)
 #define ENGINE_TEMP_MIN 70       // Minimum operating temperature (Celsius)
+
+// Forward declarations
+void enter_safe_mode();
+void exit_safe_mode();
+void check_safe_mode_recovery();
 
 /* TASKS */
 
@@ -30,22 +40,39 @@ void brake_task() {
     
     if (brake_pressure < BRAKE_PRESSURE_MIN) {
         printf("[BRAKE WARNING] Low brake pressure detected! Pressure: %d PSI\n", brake_pressure);
-        send_can_message("Brake ECU", "BRAKE FAULT - LOW PRESSURE");
+        brake_consecutive_failures++;
+        consecutive_successes = 0;  // Reset success counter
         safety_check(1);  
-        if (!is_in_safe_mode()) {
-            printf("[BRAKE CRITICAL] Brake system failure - initiating SAFE MODE!\n");
-            enter_safe_mode();
+        
+        if (is_in_safe_mode()) {
+            printf("[SAFE MODE] Driver alert: Brake system requires attention!\n");
+        } else {
+            printf("[BRAKE] Consecutive failures: %d/2\n", brake_consecutive_failures);
+            if (brake_consecutive_failures >= 2) {
+                printf("[BRAKE CRITICAL] 2 consecutive brake failures - initiating SAFE MODE!\n");
+                enter_safe_mode();
+            }
         }
+        send_can_message("Brake ECU", "BRAKE FAULT - LOW PRESSURE");
     } else if (brake_pressure > BRAKE_PRESSURE_MAX) {
         printf("[BRAKE WARNING] High brake pressure detected! Pressure: %d PSI\n", brake_pressure);
-        send_can_message("Brake ECU", "BRAKE FAULT - HIGH PRESSURE");
+        brake_consecutive_failures++;
+        consecutive_successes = 0;  // Reset success counter
         safety_check(1);  
-        if (!is_in_safe_mode()) {
-            printf("[BRAKE CRITICAL] Brake system failure - initiating SAFE MODE!\n");
-            enter_safe_mode();
+        
+        if (is_in_safe_mode()) {
+            printf("[SAFE MODE] Driver alert: Brake system requires attention!\n");
+        } else {
+            printf("[BRAKE] Consecutive failures: %d/2\n", brake_consecutive_failures);
+            if (brake_consecutive_failures >= 2) {
+                printf("[BRAKE CRITICAL] 2 consecutive brake failures - initiating SAFE MODE!\n");
+                enter_safe_mode();
+            }
         }
+        send_can_message("Brake ECU", "BRAKE FAULT - HIGH PRESSURE");
     } else {
         send_can_message("Brake ECU", "Brake OK");
+        brake_consecutive_failures = 0;  // Reset failure counter
         safety_check(0);  
     }
 }
@@ -63,23 +90,34 @@ void engine_task() {
     
     if (engine_temp > ENGINE_TEMP_MAX) {
         printf("[ENGINE WARNING] Engine overheating! Temperature: %d°C\n", engine_temp);
-        send_can_message("Engine ECU", "ENGINE FAULT - OVERHEATING");
+        engine_consecutive_failures++;
+        consecutive_successes = 0;  // Reset success counter
         safety_check(1);  
-        if (!is_in_safe_mode()) {
-            printf("[ENGINE CRITICAL] Engine overheating - initiating SAFE MODE!\n");
-            enter_safe_mode();
+        
+        if (is_in_safe_mode()) {
+            printf("[SAFE MODE] Driver alert: Engine system requires attention!\n");
+        } else {
+            printf("[ENGINE] Consecutive failures: %d/2\n", engine_consecutive_failures);
+            if (engine_consecutive_failures >= 2) {
+                printf("[ENGINE CRITICAL] 2 consecutive engine failures - initiating SAFE MODE!\n");
+                enter_safe_mode();
+            }
         }
+        send_can_message("Engine ECU", "ENGINE FAULT - OVERHEATING");
     } else if (engine_temp < ENGINE_TEMP_MIN) {
         printf("[ENGINE WARNING] Engine too cold! Temperature: %d°C\n", engine_temp);
         send_can_message("Engine ECU", "ENGINE WARNING - COLD START");
+        engine_consecutive_failures = 0;  // Reset failure counter (not critical)
         safety_check(0);
     } else {
         send_can_message("Engine ECU", "Engine Normal");
+        engine_consecutive_failures = 0;  // Reset failure counter
         safety_check(0);  // System normal
     }
 }
 
 void enter_safe_mode() {
+    activate_safe_mode();
     printf("\n========================================\n");
     printf("       SAFE MODE ACTIVATED\n");
     printf("========================================\n");
@@ -92,6 +130,36 @@ void enter_safe_mode() {
     send_can_message("Safety ECU", "SAFE MODE ENGAGED");
 }
 
+void exit_safe_mode() {
+    printf("\n========================================\n");
+    printf("       SAFE MODE DEACTIVATED\n");
+    printf("========================================\n");
+    printf("All systems stable and operational\n");
+    printf("Resuming normal operation\n");
+    printf("========================================\n\n");
+    send_can_message("Safety ECU", "SAFE MODE DISENGAGED");
+    deactivate_safe_mode();
+}
+
+void check_safe_mode_recovery() {
+    if (is_in_safe_mode()) {
+        // Check if all systems are currently healthy (no consecutive failures)
+        if (brake_consecutive_failures == 0 && 
+            engine_consecutive_failures == 0 && 
+            sensor_consecutive_failures == 0) {
+            consecutive_successes++;
+            printf("[RECOVERY] All systems healthy - consecutive successes: %d/3\n", consecutive_successes);
+            
+            if (consecutive_successes >= 3) {
+                exit_safe_mode();
+                consecutive_successes = 0;
+            }
+        } else {
+            consecutive_successes = 0;  // Reset if any system has failures
+        }
+    }
+}
+
 void sensor_fusion_task() {
     // Optional: make distance dynamic for testing
     float distance = ((rand() % 500) / 100.0);
@@ -100,14 +168,21 @@ void sensor_fusion_task() {
 
     if(distance < SAFE_DISTANCE) {
         printf("[COLLISION WARNING] Obstacle detected at %.2fm! Initiating emergency brake!\n", distance);
-        unsafe_count++;
+        sensor_consecutive_failures++;
+        consecutive_successes = 0;  // Reset success counter
         safety_check(1); 
-        if(unsafe_count >= 2 && !is_in_safe_mode()) { 
-            printf("[SENSOR CRITICAL] Multiple collision warnings - initiating SAFE MODE!\n");
-            enter_safe_mode();
+        
+        if (is_in_safe_mode()) {
+            printf("[SAFE MODE] Driver alert: Collision avoidance system active!\n");
+        } else {
+            printf("[SENSOR] Consecutive failures: %d/2\n", sensor_consecutive_failures);
+            if(sensor_consecutive_failures >= 2) { 
+                printf("[SENSOR CRITICAL] 2 consecutive collision warnings - initiating SAFE MODE!\n");
+                enter_safe_mode();
+            }
         }
     } else {
-        unsafe_count = 0; 
+        sensor_consecutive_failures = 0;  // Reset failure counter
     }
 }
 
@@ -137,6 +212,7 @@ int main() {
 
     while (1) {
         run_scheduler();
+        check_safe_mode_recovery();
         sleep(2);
     }
 
