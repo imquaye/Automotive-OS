@@ -575,7 +575,7 @@ gcc *.c -o automotive_os
 Brake Control: Checking brake pressure = 85 PSI
 [CAN BUS] Brake ECU sent: Brake OK
 [Scheduler] Brake Task completed in 0ms (within deadline)
-
+ 
 [Scheduler] Executing Engine Task (deadline: 20ms)
 Engine Control: Monitoring engine temperature = 92°C
 [CAN BUS] Engine ECU sent: Engine Normal

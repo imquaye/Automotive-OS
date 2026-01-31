@@ -3,12 +3,15 @@
 
 static int fault_count = 0;
 static int in_safe_mode = 0;
+static int recovery_cycles = 0;
 
-#define FAULT_THRESHOLD 3  // Number of faults before entering safe mode
+#define FAULT_THRESHOLD 3       // Number of faults before auto safe mode
+#define RECOVERY_THRESHOLD 5    // Number of clean cycles needed to exit safe mode
 
 void safety_check(int fault) {
     if (fault) {
         fault_count++;
+        recovery_cycles = 0;  // Reset recovery counter on any fault
         printf("[SAFETY] Fault detected! (fault count: %d/%d)\n", 
                fault_count, FAULT_THRESHOLD);
         
@@ -24,12 +27,23 @@ void safety_check(int fault) {
         if (!in_safe_mode) {
             printf("[SAFETY] System operating normally\n");
         } else {
-            printf("[SAFETY] System in SAFE MODE - monitoring for recovery\n");
-            if (fault_count == 0) {
-                printf("[SAFETY] System recovered - exiting SAFE MODE\n");
+            recovery_cycles++;
+            printf("[SAFETY] System in SAFE MODE - recovery progress: %d/%d clean cycles\n",
+                   recovery_cycles, RECOVERY_THRESHOLD);
+            if (fault_count == 0 && recovery_cycles >= RECOVERY_THRESHOLD) {
+                printf("[SAFETY] System stable - exiting SAFE MODE\n");
                 in_safe_mode = 0;
+                recovery_cycles = 0;
             }
         }
+    }
+}
+
+void activate_safe_mode() {
+    if (!in_safe_mode) {
+        in_safe_mode = 1;
+        recovery_cycles = 0;
+        printf("[SAFETY] SAFE MODE activated by critical system\n");
     }
 }
 

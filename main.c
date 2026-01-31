@@ -31,24 +31,32 @@ void brake_task() {
     if (brake_pressure < BRAKE_PRESSURE_MIN) {
         printf("[BRAKE WARNING] Low brake pressure detected! Pressure: %d PSI\n", brake_pressure);
         send_can_message("Brake ECU", "BRAKE FAULT - LOW PRESSURE");
-        safety_check(1);  // Report fault to safety system
+        safety_check(1);  
+        if (!is_in_safe_mode()) {
+            printf("[BRAKE CRITICAL] Brake system failure - initiating SAFE MODE!\n");
+            enter_safe_mode();
+        }
     } else if (brake_pressure > BRAKE_PRESSURE_MAX) {
         printf("[BRAKE WARNING] High brake pressure detected! Pressure: %d PSI\n", brake_pressure);
         send_can_message("Brake ECU", "BRAKE FAULT - HIGH PRESSURE");
-        safety_check(1);  // Report fault to safety system
+        safety_check(1);  
+        if (!is_in_safe_mode()) {
+            printf("[BRAKE CRITICAL] Brake system failure - initiating SAFE MODE!\n");
+            enter_safe_mode();
+        }
     } else {
         send_can_message("Brake ECU", "Brake OK");
-        safety_check(0);  // System normal
+        safety_check(0);  
     }
 }
 
 void engine_task() {
-    // Simulate realistic engine temperature (50-130 Celsius, with occasional faults)
-    int engine_temp = 70 + (rand() % 40);  // Normal range: 70-110 Celsius
+
+    int engine_temp = 70 + (rand() % 40);  
     
-    // 8% chance of simulating an engine fault scenario (roughly 1 in 12 times)
+    
     if (rand() % 100 < 12) {
-        engine_temp = 110 + (rand() % 25);  // Force overheating (110-134 Celsius)
+        engine_temp = 110 + (rand() % 25);  
     }
     
     printf("Engine Control: Monitoring engine temperature = %d°C\n", engine_temp);
@@ -56,11 +64,14 @@ void engine_task() {
     if (engine_temp > ENGINE_TEMP_MAX) {
         printf("[ENGINE WARNING] Engine overheating! Temperature: %d°C\n", engine_temp);
         send_can_message("Engine ECU", "ENGINE FAULT - OVERHEATING");
-        safety_check(1);  // Report fault to safety system
+        safety_check(1);  
+        if (!is_in_safe_mode()) {
+            printf("[ENGINE CRITICAL] Engine overheating - initiating SAFE MODE!\n");
+            enter_safe_mode();
+        }
     } else if (engine_temp < ENGINE_TEMP_MIN) {
         printf("[ENGINE WARNING] Engine too cold! Temperature: %d°C\n", engine_temp);
         send_can_message("Engine ECU", "ENGINE WARNING - COLD START");
-        // Cold engine is a warning, not a critical fault
         safety_check(0);
     } else {
         send_can_message("Engine ECU", "Engine Normal");
@@ -69,26 +80,34 @@ void engine_task() {
 }
 
 void enter_safe_mode() {
-    // simulate safe mode actions
-    printf("System is now in SAFE MODE.\n");
+    printf("\n========================================\n");
+    printf("       SAFE MODE ACTIVATED\n");
+    printf("========================================\n");
+    printf("Actions taken:\n");
+    printf("  - Reducing vehicle speed to safe limit\n");
+    printf("  - Disabling non-critical systems\n");
+    printf("  - Activating hazard lights\n");
+    printf("  - Alerting driver to pull over safely\n");
+    printf("========================================\n\n");
+    send_can_message("Safety ECU", "SAFE MODE ENGAGED");
 }
 
 void sensor_fusion_task() {
     // Optional: make distance dynamic for testing
-    float distance = ((rand() % 500) / 100.0); // 0.0m to 5.0m
+    float distance = ((rand() % 500) / 100.0);
 
     printf("Sensor Fusion: Distance = %.2fm\n", distance);
 
     if(distance < SAFE_DISTANCE) {
         printf("[COLLISION WARNING] Obstacle detected at %.2fm! Initiating emergency brake!\n", distance);
         unsafe_count++;
-        safety_check(1);  // Report fault to safety system
-        if(unsafe_count >= 2) {  // triggers after 2 consecutive unsafe readings
-            printf("[SAFETY] Multiple collision warnings! Engaging SAFE MODE protocols\n");
+        safety_check(1); 
+        if(unsafe_count >= 2 && !is_in_safe_mode()) { 
+            printf("[SENSOR CRITICAL] Multiple collision warnings - initiating SAFE MODE!\n");
             enter_safe_mode();
         }
     } else {
-        unsafe_count = 0; // reset counter if safe
+        unsafe_count = 0; 
     }
 }
 
@@ -97,14 +116,14 @@ void infotainment_task() {
 }
 
 int main() {
-    // Seed random number generator for realistic simulation
+
     srand(time(NULL));
     
-    // Task structure: {name, period(ms), priority, deadline(ms), deadline_missed, task_function}
-    Task brake = {"Brake Task", 10, 1, 10, 0, brake_task};              // Critical: 10ms deadline
-    Task engine = {"Engine Task", 20, 2, 20, 0, engine_task};           // High: 20ms deadline
-    Task sensor = {"Sensor Fusion Task", 30, 3, 30, 0, sensor_fusion_task}; // Medium: 30ms deadline
-    Task infotainment = {"Infotainment Task", 100, 4, 100, 0, infotainment_task}; // Low: 100ms deadline
+
+    Task brake = {"Brake Task", 10, 1, 5, 0, brake_task};                   
+    Task engine = {"Engine Task", 20, 2, 15, 0, engine_task};               
+    Task sensor = {"Sensor Fusion Task", 30, 3, 25, 0, sensor_fusion_task}; 
+    Task infotainment = {"Infotainment Task", 100, 4, 200, 0, infotainment_task}; 
 
     printf("[System] Automotive OS Starting...\n");
     printf("[System] Safety monitoring enabled\n");
