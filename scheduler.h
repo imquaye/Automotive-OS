@@ -5,10 +5,10 @@
 
 typedef struct {
     char name[30];
-    int period;           // Task period in ms
+    int period;           
     int priority;
-    int deadline;         // Deadline in ms (typically equal to period)
-    int deadline_missed;  // Flag to track if deadline was missed
+    int deadline;         
+    int deadline_missed;  
     void (*task_function)();
 } Task;
 

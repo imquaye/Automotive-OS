@@ -195,18 +195,20 @@ Implements **functional safety** concepts from ISO 26262 (automotive safety stan
               fault detected │
                              ▼
                     ┌─────────────────┐
-                    │  DEGRADED MODE  │
-                    │ (fault_count<3) │
+                    │  TRACKING FAULTS│
+                    │ (fault_count>0) │
                     └────────┬────────┘
                              │
-          fault_count >= 3   │
+     2 consecutive failures  │
+      in any subsystem       │
                              ▼
                     ┌─────────────────┐
                     │   SAFE MODE     │
                     │ (in_safe_mode=1)│
                     └────────┬────────┘
                              │
-            fault_count = 0  │ (recovery)
+    3 consecutive successes  │ (recovery)
+    across all subsystems    │
                              ▼
                     ┌─────────────────┐
                     │  NORMAL MODE    │
@@ -216,33 +218,44 @@ Implements **functional safety** concepts from ISO 26262 (automotive safety stan
 #### Fault Counting Logic
 
 ```c
-#define FAULT_THRESHOLD 3
+static int fault_count = 0;
+static int in_safe_mode = 0;
 
 void safety_check(int fault) {
     if (fault) {
         fault_count++;  // Accumulate faults
-        
-        if (fault_count >= FAULT_THRESHOLD && !in_safe_mode) {
-            // Too many faults - enter safe mode
-            in_safe_mode = 1;
-        }
     } else {
         if (fault_count > 0) {
             fault_count--;  // Gradual recovery on successful cycles
         }
-        // Check if we can exit safe mode
-        if (in_safe_mode && fault_count == 0) {
-            in_safe_mode = 0;  // Recovery complete
-        }
     }
 }
-```
 
-**Key Safety Concepts:**
-- **Fault Tolerance**: Single faults don't crash the system
-- **Gradual Degradation**: System degrades gracefully, not abruptly
-- **Safe Mode**: When critically faulted, disable non-essential functions
-- **Recovery**: System can return to normal after sustained fault-free operation
+void activate_safe_mode() {
+    in_safe_mode = 1;
+}
+
+void deactivate_safe_mode() {
+    in_safe_mode = 0;
+    fault_count = 0;
+}
+
+int is_in_safe_mode() {
+    return in_safe_mode;
+}
+
+int get_fault_count() {
+    return fault_count;
+}
+```
+ Consecutive Threshold |
+|--------|-----------|-------------|-------------------|----------------------|
+| **Brake** | Low Pressure | 8% | Pressure < 20 PSI | 2 consecutive |
+| **Brake** | High Pressure | Random | Pressure > 120 PSI | 2 consecutive |
+| **Engine** | Overheating | 12% | Temperature > 105°C | 2 consecutive |
+| **Engine** | Cold Start | Normal | Temperature < 70°C | Warning only |
+| **Sensor** | Collision Warning | Random | Distance < 1.0m | 2 consecutivecycles to exit safe mode
+- **Fault Tracking**: Central fault counting provides additional system health monitoring
 
 #### Realistic Fault Simulation
 
@@ -257,26 +270,31 @@ The system now simulates **realistic vehicle fault scenarios** to demonstrate sa
 
 **Why Simulate Faults?**
 - Real vehicles don't always operate perfectly
-- Safety systems must be tested under failure conditions
-- Demonstrates fault accumulation and safe mode triggering
-- Shows how multiple subsystem failures cascade into safety actions
+- Safety systemconsecutive fault detection logic
+- Shows how subsystem failures trigger safe mode
+- Recovery mechanism ensures system returns to normal only when stable
 
-**Fault Integration Flow:**
+**Consecutive Failure Flow:**
 ```
-Brake/Engine Fault Detected
+Brake/Engine/Sensor Fault Detected (1st time)
          │
-         ▼
-    safety_check(1) called
+         ├─→ consecutive_failures = 1
+         ├─→ consecutive_successes = 0 (reset)
+         └─→ safety_check(1) called
+                 │
+                 └─→ fault_count++
+
+Same Fault Detected Again (2nd consecutive)
          │
-         ▼
-    fault_count incremented
+         ├─→ consecutive_failures = 2
+         ├─→ TRIGGER SAFE MODE
+         └─→ safety_check(1) called
+
+All Systems Healthy (in safe mode)
          │
-         ▼
-    fault_count >= 3?
-         │
-    Yes ─┴─ No
-     │      │
-     ▼      ▼
+         ├─→ consecutive_successes++
+         └─→ If consecutive_successes >= 3:
+                 └─→ EXIT SAFE MODE
  SAFE MODE  Continue monitoring
 ```
 
@@ -290,25 +308,28 @@ Brings everything together with concrete automotive tasks.
 
 ```c
 // Higher priority (lower numbers) = more critical = shorter period
-Task brake         = {"Brake Task",          10,  1,  10, 0, brake_task};
-Task engine        = {"Engine Task",         20,  2,  20, 0, engine_task};
-Task sensor        = {"Sensor Fusion Task",  30,  3,  30, 0, sensor_fusion_task};
-Task infotainment  = {"Infotainment Task",  100,  4, 100, 0, infotainment_task};
+Task brake         = {"Brake Task",          10,  1,   5, 0, brake_task};
+Task engine        = {"Engine Task",         20,  2,  15, 0, engine_task};
+Task sensor        = {"Sensor Fusion Task",  30,  3,  25, 0, sensor_fusion_task};
+Task infotainment  = {"Infotainment Task",  100,  4, 200, 0, infotainment_task};
 ```
 
 **Priority Rationale:**
-| Task | Period | Why This Priority |
-|------|--------|-------------------|
-| Brake | 10ms | Life-critical: must respond immediately to driver input |
-| Engine | 20ms | Safety-critical: engine parameters change rapidly |
-| Sensor | 30ms | ADAS-critical: object detection needs quick response |
-| Infotainment | 100ms | Non-critical: audio/display can tolerate delays |
+| Task | Period | Deadline | Why This Priority |
+|------|--------|----------|-------------------|
+| Brake | 10ms | 5ms | Life-critical: must respond immediately to driver input |
+| Engine | 20ms | 15ms | Safety-critical: engine parameters change rapidly |
+| Sensor | 30ms | 25ms | ADAS-critical: object detection needs quick response |
+| Infotainment | 100ms | 200ms | Non-critical: audio/display can tolerate delays |
 
 #### Brake Task Implementation
 
 ```c
 #define BRAKE_PRESSURE_MIN 20    // Minimum safe brake pressure (PSI)
 #define BRAKE_PRESSURE_MAX 120   // Maximum safe brake pressure (PSI)
+
+static int brake_consecutive_failures = 0;
+static int consecutive_successes = 0;
 
 void brake_task() {
     // Simulate realistic brake pressure (0-150 PSI, with occasional faults)
@@ -322,24 +343,50 @@ void brake_task() {
     printf("Brake Control: Checking brake pressure = %d PSI\n", brake_pressure);
     
     if (brake_pressure < BRAKE_PRESSURE_MIN) {
-        printf("[BRAKE WARNING] Low brake pressure detected!\n");
+        printf("[BRAKE WARNING] Low brake pressure detected! Pressure: %d PSI\n", brake_pressure);
+        brake_consecutive_failures++;
+        consecutive_successes = 0;
+        safety_check(1);  // Report fault to safety system
+        
+        if (is_in_safe_mode()) {
+            printf("[SAFE MODE] Driver alert: Brake system requires attention!\n");
+        } else {
+            printf("[BRAKE] Consecutive failures: %d/2\n", brake_consecutive_failures);
+            if (brake_consecutive_failures >= 2) {
+                printf("[BRAKE CRITICAL] 2 consecutive brake failures - initiating SAFE MODE!\n");
+                enter_safe_mode();
+            }
+        }
         send_can_message("Brake ECU", "BRAKE FAULT - LOW PRESSURE");
-        safety_check(1);  // Report fault to safety system
     } else if (brake_pressure > BRAKE_PRESSURE_MAX) {
-        printf("[BRAKE WARNING] High brake pressure detected!\n");
+        printf("[BRAKE WARNING] High brake pressure detected! Pressure: %d PSI\n", brake_pressure);
+        brake_consecutive_failures++;
+        consecutive_successes = 0;
+        safety_check(1);
+        
+        if (is_in_safe_mode()) {
+            printf("[SAFE MODE] Driver alert: Brake system requires attention!\n");
+        } else {
+            printf("[BRAKE] Consecutive failures: %d/2\n", brake_consecutive_failures);
+            if (brake_consecutive_failures >= 2) {
+                printf("[BRAKE CRITICAL] 2 consecutive brake failures - initiating SAFE MODE!\n");
+                enter_safe_mode();
+            }
+        }
         send_can_message("Brake ECU", "BRAKE FAULT - HIGH PRESSURE");
-        safety_check(1);  // Report fault to safety system
     } else {
         send_can_message("Brake ECU", "Brake OK");
+        brake_consecutive_failures = 0;
         safety_check(0);  // System normal
     }
 }
 ```
 
-**Fault Simulation Logic:**
-- Normal pressure range: 20-120 PSI
-- 8% random chance of forced low-pressure fault (~1 in 12 cycles)
-- Faults are reported to the safety system for fault counting
+**Consecutive Failure Logic:**
+- Tracks consecutive brake failures using static counter
+- 2 consecutive failures trigger immediate safe mode entry
+- Reset on successful reading
+- Separate tracking allows recovery when system stabilizes
 
 **Real-world equivalent:**
 1. Read brake pedal position sensor
@@ -354,23 +401,43 @@ void brake_task() {
 #define ENGINE_TEMP_MAX 105      // Maximum safe engine temperature (Celsius)
 #define ENGINE_TEMP_MIN 70       // Minimum operating temperature (Celsius)
 
+static int engine_consecutive_failures = 0;
+
 void engine_task() {
-    // Simulate realistic engine temperature (50-130 Celsius, with occasional faults)
+    // Simulate realistic engine temperature (70-110 Celsius, with occasional faults)
     int engine_temp = 70 + (rand() % 40);  // Normal range: 70-110 Celsius
     
-    // 8% chance of simulating an engine fault scenario (roughly 1 in 12 times)
-    if (rand() % 100 < 8) {
+    // 12% chance of simulating an engine fault scenario
+    if (rand() % 100 < 12) {
         engine_temp = 110 + (rand() % 25);  // Force overheating (110-134 Celsius)
     }
     
     printf("Engine Control: Monitoring engine temperature = %d°C\n", engine_temp);
     
     if (engine_temp > ENGINE_TEMP_MAX) {
-        printf("[ENGINE WARNING] Engine overheating!\n");
-        send_can_message("Engine ECU", "ENGINE FAULT - OVERHEATING");
+        printf("[ENGINE WARNING] Engine overheating! Temperature: %d°C\n", engine_temp);
+        engine_consecutive_failures++;
+        consecutive_successes = 0;
         safety_check(1);  // Report fault to safety system
+        
+        if (is_in_safe_mode()) {
+            printf("[SAFE MODE] Driver alert: Engine system requires attention!\n");
+        } else {
+            printf("[ENGINE] Consecutive failures: %d/2\n", engine_consecutive_failures);
+            if (engine_consecutive_failures >= 2) {
+                printf("[ENGINE CRITICAL] 2 consecutive engine failures - initiating SAFE MODE!\n");
+                enter_safe_mode();
+            }
+        }
+        send_can_message("Engine ECU", "ENGINE FAULT - OVERHEATING");
+    } else if (engine_temp < ENGINE_TEMP_MIN) {
+        printf("[ENGINE WARNING] Engine too cold! Temperature: %d°C\n", engine_temp);
+        send_can_message("Engine ECU", "ENGINE WARNING - COLD START");
+        engine_consecutive_failures = 0;
+        safety_check(0);
     } else {
         send_can_message("Engine ECU", "Engine Normal");
+        engine_consecutive_failures = 0;
         safety_check(0);  // System normal
     }
 }
@@ -378,27 +445,42 @@ void engine_task() {
 
 **Fault Simulation Logic:**
 - Normal temperature range: 70-105°C
-- 8% random chance of forced overheating fault (~1 in 12 cycles)
-- Overheating triggers safety protocol for driver protection
+- 12% random chance of forced overheating fault
+- Cold engine (<70°C) generates warning but not critical fault
+- 2 consecutive overheating events trigger safe mode
 
 ---
 
 #### Sensor Fusion Task - Obstacle Detection
 
 ```c
+#define SAFE_DISTANCE 1.0
+
+static int sensor_consecutive_failures = 0;
+
 void sensor_fusion_task() {
+    // Dynamic distance for testing
     float distance = ((rand() % 500) / 100.0); // Simulate 0.0m to 5.0m
 
+    printf("Sensor Fusion: Distance = %.2fm\n", distance);
+
     if (distance < SAFE_DISTANCE) {  // SAFE_DISTANCE = 1.0m
-        printf("[COLLISION WARNING] Obstacle detected!\n");
-        unsafe_count++;
+        printf("[COLLISION WARNING] Obstacle detected at %.2fm! Initiating emergency brake!\n", distance);
+        sensor_consecutive_failures++;
+        consecutive_successes = 0;
         safety_check(1);  // Report fault to safety system
         
-        if (unsafe_count >= 2) {  // 2 consecutive unsafe readings
-            enter_safe_mode();
+        if (is_in_safe_mode()) {
+            printf("[SAFE MODE] Driver alert: Collision avoidance system active!\n");
+        } else {
+            printf("[SENSOR] Consecutive failures: %d/2\n", sensor_consecutive_failures);
+            if (sensor_consecutive_failures >= 2) {
+                printf("[SENSOR CRITICAL] 2 consecutive collision warnings - initiating SAFE MODE!\n");
+                enter_safe_mode();
+            }
         }
     } else {
-        unsafe_count = 0;  // Reset on safe reading
+        sensor_consecutive_failures = 0;  // Reset on safe reading
     }
 }
 ```
@@ -407,6 +489,52 @@ void sensor_fusion_task() {
 - Single bad reading could be sensor noise
 - Two consecutive readings suggest real obstacle
 - This is a simple **filtering algorithm** to reduce false positives
+- All three systems (brake, engine, sensor) use the same 2-failure threshold
+
+#### Safe Mode Management
+
+The system implements comprehensive safe mode entry and recovery:
+
+```c
+void enter_safe_mode() {
+    activate_safe_mode();
+    printf("\n========================================\n");
+    printf("       SAFE MODE ACTIVATED\n");
+    printf("========================================\n");
+    printf("Actions taken:\n");
+    printf("  - Reducing vehicle speed to safe limit\n");
+    printf("  - Disabling non-critical systems\n");
+    printf("  - Activating hazard lights\n");
+    printf("  - Alerting driver to pull over safely\n");
+    printf("========================================\n\n");
+    send_can_message("Safety ECU", "SAFE MODE ENGAGED");
+}
+
+void check_safe_mode_recovery() {
+    if (is_in_safe_mode()) {
+        // All systems must be healthy (no consecutive failures)
+        if (brake_consecutive_failures == 0 && 
+            engine_consecutive_failures == 0 && 
+            sensor_consecutive_failures == 0) {
+            consecutive_successes++;
+            printf("[RECOVERY] All systems healthy - consecutive successes: %d/3\n", consecutive_successes);
+            
+            if (consecutive_successes >= 3) {
+                exit_safe_mode();
+                consecutive_successes = 0;
+            }
+        } else {
+            consecutive_successes = 0;  // Reset if any system has failures
+        }
+    }
+}
+```
+
+**Recovery Requirements:**
+- All three systems (brake, engine, sensor) must be fault-free
+- 3 consecutive successful cycles required to exit safe mode
+- Any failure during recovery resets the success counter
+- Ensures system stability before returning to normal operation
 
 ---
 
@@ -457,19 +585,32 @@ void sensor_fusion_task() {
    ├─→ If no deadline misses: safety_check(0)
    │
    └─→ sleep(2) then repeat
-```
-
-### Safety State Transitions
-
-```
-Normal Operation:
-   └─→ safety_check(0) called
+```All tasks executing successfully
+         ├─→ safety_check(0) called
          └─→ "System operating normally"
 
-Fault Detected (deadline miss or obstacle):
-   └─→ safety_check(1) called
-         └─→ fault_count++
-               ├─→ If < 3: Continue with warning
+Fault Detected (single occurrence):
+   └─→ Task detects fault (pressure/temperature/distance)
+         ├─→ consecutive_failures = 1
+         ├─→ safety_check(1) called
+         ├─→ fault_count++
+         └─→ Continue monitoring
+
+Second Consecutive Fault (same subsystem):
+   └─→ consecutive_failures = 2
+         ├─→ enter_safe_mode() triggered
+         ├─→ activate_safe_mode() called
+         ├─→ CAN message broadcast
+         └─→ in_safe_mode = 1
+
+Recovery Process:
+   └─→ All subsystems healthy (brake=0, engine=0, sensor=0)
+         ├─→ consecutive_successes++
+         ├─→ If consecutive_successes >= 3:
+         │     ├─→ exit_safe_mode() triggered
+         │     ├─→ deactivate_safe_mode() called
+         │     └─→ in_safe_mode = 0
+         └─→ Resume normal operationwarning
                └─→ If >= 3: Enter SAFE MODE
 
 Recovery:
@@ -552,37 +693,77 @@ gcc *.c -o automotive_os
 2. Links them together
 3. Creates executable `automotive_os`
 
-### Run
-
-```bash
-./automotive_os
-```
-
-**To stop**: Press `Ctrl+C` (sends SIGINT)
-
----
-
-## Sample Output
-
-```
-[System] Automotive OS Starting...
-[System] Safety monitoring enabled
-[System] Deadline monitoring enabled
-[System] Fault simulation active - brake/engine faults may occur
-
-[Scheduler] Running tasks (Rate Monotonic Scheduling)
-[Scheduler] Executing Brake Task (deadline: 10ms)
+### Run5ms)
 Brake Control: Checking brake pressure = 85 PSI
 [CAN BUS] Brake ECU sent: Brake OK
 [Scheduler] Brake Task completed in 0ms (within deadline)
  
-[Scheduler] Executing Engine Task (deadline: 20ms)
+[Scheduler] Executing Engine Task (deadline: 15ms)
 Engine Control: Monitoring engine temperature = 92°C
 [CAN BUS] Engine ECU sent: Engine Normal
 [Scheduler] Engine Task completed in 0ms (within deadline)
 
+[Scheduler] Executing Sensor Fusion Task (deadline: 25ms)
+Sensor Fusion: Distance = 3.45m
+[Scheduler] Sensor Fusion Task completed in 0ms (within deadline)
+
+[Scheduler] Executing Infotainment Task (deadline: 200ms)
+Infotainment: Playing music
+[Scheduler] Infotainment Task completed in 0ms (within deadline)
+
 --- Later in execution (fault occurs) ---
 
+[Scheduler] Executing Brake Task (deadline: 5ms)
+Brake Control: Checking brake pressure = 12 PSI
+[BRAKE WARNING] Low brake pressure detected! Pressure: 12 PSI
+[BRAKE] Consecutive failures: 1/2
+[CAN BUS] Brake ECU sent: BRAKE FAULT - LOW PRESSURE
+[Scheduler] Brake Task completed in 0ms (within deadline)
+
+--- Next cycle (second consecutive brake fault) ---
+
+[Scheduler] Executing Brake Task (deadline: 5ms)
+Brake Control: Checking brake pressure = 15 PSI
+[BRAKE WARNING] Low brake pressure detected! Pressure: 15 PSI
+[BRAKE] Consecutive failures: 2/2
+[BRAKE CRITICAL] 2 consecutive brake failures - initiating SAFE MODE!
+
+========================================
+       SAFE MODE ACTIVATED
+========================================
+Actions taken:
+  - Reducing vehicle speed to safe limit
+  - Disabling non-critical systems
+  - Activating hazard lights
+  - Alerting driver to pull over safely
+========================================
+
+[CAN BUS] Safety ECU sent: SAFE MODE ENGAGED
+[CAN BUS] Brake ECU sent: BRAKE FAULT - LOW PRESSURE
+[Scheduler] Brake Task completed in 0ms (within deadline)
+
+--- System continues in safe mode ---
+
+[Scheduler] Executing Brake Task (deadline: 5ms)
+Brake Control: Checking brake pressure = 78 PSI
+[CAN BUS] Brake ECU sent: Brake OK
+[SAFE MODE] Driver alert: Brake system requires attention!
+[Scheduler] Brake Task completed in 0ms (within deadline)
+
+--- Recovery begins (all systems healthy) ---
+
+[RECOVERY] All systems healthy - consecutive successes: 1/3
+[RECOVERY] All systems healthy - consecutive successes: 2/3
+[RECOVERY] All systems healthy - consecutive successes: 3/3
+
+========================================
+       SAFE MODE DEACTIVATED
+========================================
+All systems stable and operational
+Resuming normal operation
+========================================
+
+[CAN BUS] Safety ECU sent: SAFE MODE DISENGAGED
 [Scheduler] Executing Brake Task (deadline: 10ms)
 Brake Control: Checking brake pressure = 12 PSI
 [BRAKE WARNING] Low brake pressure detected! Pressure: 12 PSI

@@ -8,32 +8,33 @@
 
 #define SAFE_DISTANCE 1.0
 
-// Consecutive failure/success tracking
+// tracking Consecutive failure/success 
 static int brake_consecutive_failures = 0;
 static int engine_consecutive_failures = 0;
 static int sensor_consecutive_failures = 0;
 static int consecutive_successes = 0;
 
 // Thresholds for brake and engine systems
-#define BRAKE_PRESSURE_MIN 20    // Minimum safe brake pressure (PSI)
-#define BRAKE_PRESSURE_MAX 120   // Maximum safe brake pressure (PSI)
-#define ENGINE_TEMP_MAX 105      // Maximum safe engine temperature (Celsius)
-#define ENGINE_TEMP_MIN 70       // Minimum operating temperature (Celsius)
+#define BRAKE_PRESSURE_MIN 20    
+#define BRAKE_PRESSURE_MAX 120   
+#define ENGINE_TEMP_MAX 105      
+#define ENGINE_TEMP_MIN 70      
 
 // Forward declarations
 void enter_safe_mode();
 void exit_safe_mode();
 void check_safe_mode_recovery();
 
-/* TASKS */
 
+
+// Tasks
 void brake_task() {
-    // Simulate realistic brake pressure (0-150 PSI, with occasional faults)
+    
     int brake_pressure = rand() % 151;  // 0 to 150 PSI
     
-    // 8% chance of simulating a brake fault scenario (roughly 1 in 12 times)
+   
     if (rand() % 100 < 8) {
-        brake_pressure = rand() % 20;  // Force low pressure fault (0-19 PSI)
+        brake_pressure = rand() % 20; 
     }
     
     printf("Brake Control: Checking brake pressure = %d PSI\n", brake_pressure);
@@ -41,7 +42,7 @@ void brake_task() {
     if (brake_pressure < BRAKE_PRESSURE_MIN) {
         printf("[BRAKE WARNING] Low brake pressure detected! Pressure: %d PSI\n", brake_pressure);
         brake_consecutive_failures++;
-        consecutive_successes = 0;  // Reset success counter
+        consecutive_successes = 0;  
         safety_check(1);  
         
         if (is_in_safe_mode()) {
@@ -57,7 +58,7 @@ void brake_task() {
     } else if (brake_pressure > BRAKE_PRESSURE_MAX) {
         printf("[BRAKE WARNING] High brake pressure detected! Pressure: %d PSI\n", brake_pressure);
         brake_consecutive_failures++;
-        consecutive_successes = 0;  // Reset success counter
+        consecutive_successes = 0;  
         safety_check(1);  
         
         if (is_in_safe_mode()) {
@@ -72,7 +73,7 @@ void brake_task() {
         send_can_message("Brake ECU", "BRAKE FAULT - HIGH PRESSURE");
     } else {
         send_can_message("Brake ECU", "Brake OK");
-        brake_consecutive_failures = 0;  // Reset failure counter
+        brake_consecutive_failures = 0;  
         safety_check(0);  
     }
 }
@@ -91,7 +92,7 @@ void engine_task() {
     if (engine_temp > ENGINE_TEMP_MAX) {
         printf("[ENGINE WARNING] Engine overheating! Temperature: %d°C\n", engine_temp);
         engine_consecutive_failures++;
-        consecutive_successes = 0;  // Reset success counter
+        consecutive_successes = 0; 
         safety_check(1);  
         
         if (is_in_safe_mode()) {
@@ -107,12 +108,12 @@ void engine_task() {
     } else if (engine_temp < ENGINE_TEMP_MIN) {
         printf("[ENGINE WARNING] Engine too cold! Temperature: %d°C\n", engine_temp);
         send_can_message("Engine ECU", "ENGINE WARNING - COLD START");
-        engine_consecutive_failures = 0;  // Reset failure counter (not critical)
+        engine_consecutive_failures = 0; 
         safety_check(0);
     } else {
         send_can_message("Engine ECU", "Engine Normal");
-        engine_consecutive_failures = 0;  // Reset failure counter
-        safety_check(0);  // System normal
+        engine_consecutive_failures = 0; 
+        safety_check(0); 
     }
 }
 
@@ -167,9 +168,9 @@ void sensor_fusion_task() {
     printf("Sensor Fusion: Distance = %.2fm\n", distance);
 
     if(distance < SAFE_DISTANCE) {
-        printf("[COLLISION WARNING] Obstacle detected at %.2fm! Initiating emergency brake!\n", distance);
+        printf("[COLLISION WARNING] Obstacle detected at %.2fm! Activating warning lights and horns!\n", distance);
         sensor_consecutive_failures++;
-        consecutive_successes = 0;  // Reset success counter
+        consecutive_successes = 0;  // Reset ze success counta
         safety_check(1); 
         
         if (is_in_safe_mode()) {
@@ -194,7 +195,7 @@ int main() {
 
     srand(time(NULL));
     
-
+// taasks definition
     Task brake = {"Brake Task", 10, 1, 5, 0, brake_task};                   
     Task engine = {"Engine Task", 20, 2, 15, 0, engine_task};               
     Task sensor = {"Sensor Fusion Task", 30, 3, 25, 0, sensor_fusion_task}; 

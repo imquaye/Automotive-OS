@@ -10,9 +10,11 @@ int task_count = 0;
 static int total_deadline_misses = 0;
 
 void add_task(Task task) {
-    task.deadline_missed = 0;  // Initialize deadline miss flag
+    task.deadline_missed = 0;  
     tasks[task_count++] = task;
 }
+
+//RMS: Sort tasks by period (shortest period = highest priority)
 
 void sort_tasks() {
     for (int i = 0; i < task_count - 1; i++) {
@@ -28,8 +30,7 @@ void sort_tasks() {
 
 // Get elapsed time in milliseconds
 long get_elapsed_ms(struct timespec start, struct timespec end) {
-    return (end.tv_sec - start.tv_sec) * 1000 + 
-           (end.tv_nsec - start.tv_nsec) / 1000000;
+    return (end.tv_sec - start.tv_sec) * 1000 + (end.tv_nsec - start.tv_nsec) / 1000000;
 }
 
 int get_total_deadline_misses() {
@@ -63,7 +64,7 @@ void run_scheduler() {
                    tasks[i].name, execution_time, tasks[i].deadline);
             
             // Trigger safety check on deadline miss
-            safety_check(1);  // Report fault condition
+            safety_check(1);  // Report faulty condition
         } else {
             tasks[i].deadline_missed = 0;
             printf("[Scheduler] %s completed in %ldms (within deadline)\n",
